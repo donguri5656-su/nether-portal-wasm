@@ -47,9 +47,7 @@ static inline float noise3D(float x, float y, float z, int seed) {
     return y1 + w * (y2 - y1);
 }
 
-// --- 【公式 nether.json の完全再現】 ---
-
-// 1. y_clamped_gradient の計算
+// 1. y_clamped_gradient
 static inline float clamped_gradient(float y, float from_y, float to_y, float from_val, float to_val) {
     if (from_y < to_y) {
         if (y <= from_y) return from_val;
@@ -62,10 +60,10 @@ static inline float clamped_gradient(float y, float from_y, float to_y, float fr
     }
 }
 
-// 2. base_3d_noise の計算（公式スケール: XZ=80, Y=160）
+// 2. base_3d_noise（マイクラ公式の振幅スケールに修正）
 static inline float get_base_3d_noise(float x, float y, float z, int seed) {
-    float freqX = 1.0f / 80.0f;  // 公式 xz_factor = 80
-    float freqY = 1.0f / 160.0f; // 公式 y_factor = 160
+    float freqX = 1.0f / 80.0f;
+    float freqY = 1.0f / 160.0f;
     float freqZ = 1.0f / 80.0f;
 
     float val = 0.0f;
@@ -77,31 +75,29 @@ static inline float get_base_3d_noise(float x, float y, float z, int seed) {
         freqZ *= 2.0f;
         amp *= 0.5f;
     }
-    return val;
+    // 【重要】公式のノイズゲイン（波を増幅してしっかり空洞を削る）
+    return val * 6.5f;
 }
 
-// 3. final_density（公式数式ツリーの完全評価）
+// 3. final_density（公式数式）
 static float calculate_final_density(float x, float y, float z, int seed) {
-    // floor_gradient: from_y: -8, to_y: 24, from_val: 0, to_val: 1
     float floor_grad = clamped_gradient(y, -8.0f, 24.0f, 0.0f, 1.0f);
-
-    // roof_gradient: from_y: 128, to_y: 112, from_val: 0, to_val: 1
     float roof_grad = clamped_gradient(y, 128.0f, 112.0f, 0.0f, 1.0f);
 
-    // argument1: floor_grad + roof_grad - 2.5
+    // 中央部（Y=32〜100）では y_bias = -0.5
     float y_bias = floor_grad + roof_grad - 2.5f;
 
-    // base_3d_noise
     float base_noise = get_base_3d_noise(x, y, z, seed);
 
-    // blend_density: 2.5 + (y_bias * base_noise)
-    float density = 2.5f + (y_bias * (base_noise + 1.0f));
+    // 2.5 + (y_bias * base_noise)
+    // base_noise が大きい場所はマイナスになり巨大な空洞になる！
+    float density = 2.5f + (y_bias * base_noise);
 
     return density;
 }
 
-// メモリバッファ
-#define MAX_BLOCKS 5000
+// メモリバッファを拡大（10,000ブロックまで対応）
+#define MAX_BLOCKS 10000
 static uint8_t g_block_buffer[MAX_BLOCKS * 4];
 
 EMSCRIPTEN_KEEPALIVE
@@ -117,10 +113,9 @@ int scan_nether_3d(int seed, int minX, int maxX, int minZ, int maxZ, int stepH, 
     for (int x = minX; x <= maxX; x += stepH) {
         for (int z = minZ; z <= maxZ; z += stepH) {
             for (int y = 16; y <= 118; y += stepY) {
-                // 公式 final_density を計算！
                 float d = calculate_final_density((float)x, (float)y, (float)z, seed);
 
-                // 密度がプラスなら固体（ネザーラック）
+                // 密度がプラスなら固体ブロック（空洞以外の場所だけ保存）
                 if (d > 0.0f) {
                     if (block_count < MAX_BLOCKS) {
                         int idx = block_count * 4;
