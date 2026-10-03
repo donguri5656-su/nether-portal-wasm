@@ -5,19 +5,16 @@
 #include <emscripten.h>
 #include "cubiomes/generator.h"
 
-#define MAX_BLOCKS 5000
-// C言語側であらかじめブロックデータ用の固定メモリを確保（malloc不要！）
-static uint8_t voxel_buffer[MAX_BLOCKS * 4];
-
-static inline float hash(int64_t n) {
+// 疑似乱数と3Dパーリンノイズ
+static inline float hash(int n) {
     n = (n << 13) ^ n;
     return (1.0f - ((n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0f);
 }
 
-static inline float noise3D(float x, float y, float z, int64_t seed) {
-    int64_t X = (int64_t)floorf(x);
-    int64_t Y = (int64_t)floorf(y);
-    int64_t Z = (int64_t)floorf(z);
+static inline float noise3D(float x, float y, float z, int seed) {
+    int X = (int)floorf(x);
+    int Y = (int)floorf(y);
+    int Z = (int)floorf(z);
 
     float fx = x - (float)X;
     float fy = y - (float)Y;
@@ -27,7 +24,7 @@ static inline float noise3D(float x, float y, float z, int64_t seed) {
     float v = fy * fy * (3.0f - 2.0f * fy);
     float w = fz * fz * (3.0f - 2.0f * fz);
 
-    int64_t n = X + Y * 57 + Z * 113 + seed * 1337;
+    int n = X + Y * 57 + Z * 113 + seed * 1337;
 
     float n000 = hash(n);
     float n100 = hash(n + 1);
@@ -49,7 +46,7 @@ static inline float noise3D(float x, float y, float z, int64_t seed) {
     return y1 + w * (y2 - y1);
 }
 
-static float sampleNetherTerrain(float x, float y, float z, int64_t seed) {
+static float sampleNetherTerrain(float x, float y, float z, int seed) {
     float density = 0.0f;
     float freq = 0.04f;
     float amp = 1.0f;
@@ -71,30 +68,23 @@ static float sampleNetherTerrain(float x, float y, float z, int64_t seed) {
     return density;
 }
 
-// 固定バッファのポインタを返す関数
+// 3Dスキャン関数
 EMSCRIPTEN_KEEPALIVE
-uint8_t* get_voxel_buffer_ptr() {
-    return voxel_buffer;
-}
-
-// 3Dスキャン実行関数
-EMSCRIPTEN_KEEPALIVE
-int scan_nether_3d(int seed, int minX, int maxX, int minZ, int maxZ, int stepH, int stepY) {
+int scan_nether_3d(int seed, int minX, int maxX, int minZ, int maxZ, int stepH, int stepY, uint8_t* out_buffer, int max_blocks) {
     int block_count = 0;
-    int64_t s = (int64_t)seed;
 
     for (int x = minX; x <= maxX; x += stepH) {
         for (int z = minZ; z <= maxZ; z += stepH) {
             for (int y = 16; y <= 118; y += stepY) {
-                float d = sampleNetherTerrain((float)x, (float)y, (float)z, s);
+                float d = sampleNetherTerrain((float)x, (float)y, (float)z, seed);
 
                 if (d > 0.15f) {
-                    if (block_count < MAX_BLOCKS) {
+                    if (block_count < max_blocks) {
                         int idx = block_count * 4;
-                        voxel_buffer[idx + 0] = (uint8_t)(x - minX);
-                        voxel_buffer[idx + 1] = (uint8_t)y;
-                        voxel_buffer[idx + 2] = (uint8_t)(z - minZ);
-                        voxel_buffer[idx + 3] = 1;
+                        out_buffer[idx + 0] = (uint8_t)(x - minX);
+                        out_buffer[idx + 1] = (uint8_t)y;
+                        out_buffer[idx + 2] = (uint8_t)(z - minZ);
+                        out_buffer[idx + 3] = 1;
                         block_count++;
                     }
                 }
@@ -105,6 +95,7 @@ int scan_nether_3d(int seed, int minX, int maxX, int minZ, int maxZ, int stepH, 
     return block_count;
 }
 
+// バイオーム取得
 EMSCRIPTEN_KEEPALIVE
 int get_nether_biome(int seed, int x, int y, int z) {
     Generator g;
