@@ -47,56 +47,46 @@ static inline float noise3D(float x, float y, float z, int seed) {
     return y1 + w * (y2 - y1);
 }
 
-// 1. y_clamped_gradient
-static inline float clamped_gradient(float y, float from_y, float to_y, float from_val, float to_val) {
-    if (from_y < to_y) {
-        if (y <= from_y) return from_val;
-        if (y >= to_y) return to_val;
-        return from_val + (to_val - from_val) * ((y - from_y) / (to_y - from_y));
-    } else {
-        if (y >= from_y) return from_val;
-        if (y <= to_y) return to_val;
-        return from_val + (to_val - from_val) * ((from_y - y) / (from_y - to_y));
-    }
-}
-
-// 2. base_3d_noise（マイクラ公式の振幅スケールに修正）
+// 3Dベースノイズ（振幅 -1.0 〜 +1.0）
 static inline float get_base_3d_noise(float x, float y, float z, int seed) {
-    float freqX = 1.0f / 80.0f;
-    float freqY = 1.0f / 160.0f;
-    float freqZ = 1.0f / 80.0f;
+    float freqX = 1.0f / 64.0f;
+    float freqY = 1.0f / 128.0f;
+    float freqZ = 1.0f / 64.0f;
 
     float val = 0.0f;
     float amp = 1.0f;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 3; i++) {
         val += noise3D(x * freqX, y * freqY, z * freqZ, seed + i * 101) * amp;
         freqX *= 2.0f;
         freqY *= 2.0f;
         freqZ *= 2.0f;
         amp *= 0.5f;
     }
-    // 【重要】公式のノイズゲイン（波を増幅してしっかり空洞を削る）
-    return val * 6.5f;
+    return val * 0.55f;
 }
 
-// 3. final_density（公式数式）
+// 【重要修正】ネザーの真の物理密度判定
 static float calculate_final_density(float x, float y, float z, int seed) {
-    float floor_grad = clamped_gradient(y, -8.0f, 24.0f, 0.0f, 1.0f);
-    float roof_grad = clamped_gradient(y, 128.0f, 112.0f, 0.0f, 1.0f);
+    // 1. ノイズ値 (-1.0 〜 +1.0)
+    float noise = get_base_3d_noise(x, y, z, seed);
 
-    // 中央部（Y=32〜100）では y_bias = -0.5
-    float y_bias = floor_grad + roof_grad - 2.5f;
+    // 2. 中央部（Y=32〜100）はデフォルトでマイナス（広大な大空洞！）
+    float bias = -0.32f;
 
-    float base_noise = get_base_3d_noise(x, y, z, seed);
+    // 3. 底面と天井の硬化
+    if (y < 32.0f) {
+        // Y=32から下へ向かって急速に硬くする（床と溶岩底）
+        bias += (32.0f - y) * 0.09f;
+    } else if (y > 105.0f) {
+        // Y=105から上へ向かって急速に硬くする（天井岩盤）
+        bias += (y - 105.0f) * 0.09f;
+    }
 
-    // 2.5 + (y_bias * base_noise)
-    // base_noise が大きい場所はマイナスになり巨大な空洞になる！
-    float density = 2.5f + (y_bias * base_noise);
-
-    return density;
+    // ノイズがバイアスを打ち消してプラスになった場所だけが「岩」になる！
+    return noise + bias;
 }
 
-// メモリバッファを拡大（10,000ブロックまで対応）
+// バッファサイズ
 #define MAX_BLOCKS 10000
 static uint8_t g_block_buffer[MAX_BLOCKS * 4];
 
@@ -115,7 +105,7 @@ int scan_nether_3d(int seed, int minX, int maxX, int minZ, int maxZ, int stepH, 
             for (int y = 16; y <= 118; y += stepY) {
                 float d = calculate_final_density((float)x, (float)y, (float)z, seed);
 
-                // 密度がプラスなら固体ブロック（空洞以外の場所だけ保存）
+                // 固体ブロックのみ保存
                 if (d > 0.0f) {
                     if (block_count < MAX_BLOCKS) {
                         int idx = block_count * 4;
