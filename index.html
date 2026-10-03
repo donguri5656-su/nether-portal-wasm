@@ -8,7 +8,7 @@
     body {
       background: #0d0f17;
       color: #f3f4f6;
-      font-family: sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       padding: 20px;
       text-align: center;
     }
@@ -30,16 +30,21 @@
       width: 80%;
       margin: 6px 0;
       text-align: center;
+      font-size: 1rem;
     }
     button {
       background: #a855f7;
       color: #fff;
       border: none;
-      padding: 10px 20px;
+      padding: 12px 24px;
       border-radius: 6px;
       font-weight: bold;
       cursor: pointer;
       margin-top: 10px;
+      font-size: 1rem;
+    }
+    button:active {
+      transform: scale(0.98);
     }
     #result {
       margin-top: 20px;
@@ -49,9 +54,35 @@
       font-size: 1.1rem;
       font-weight: bold;
       color: #4cc9f0;
+      min-height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
   </style>
-  <!-- Wasmラッパーの読み込み -->
+
+  <!-- 【重要修正】nether_engine.js を読む「前」に Module を定義する -->
+  <script>
+    let getBiomeFunc = null;
+
+    var Module = {
+      onRuntimeInitialized: function() {
+        console.log("Wasm loaded!");
+        // C言語の関数をバインド
+        getBiomeFunc = Module.cwrap('get_nether_biome', 'number', ['number', 'number', 'number', 'number']);
+        
+        const resEl = document.getElementById('result');
+        if (resEl) {
+          resEl.textContent = "✅ Wasmエンジン準備完了！";
+          resEl.style.color = "#10b981";
+        }
+      },
+      printErr: function(text) {
+        console.error("Wasm Error:", text);
+      }
+    };
+  </script>
+  <!-- Wasmエンジンの読み込み -->
   <script src="nether_engine.js"></script>
 </head>
 <body>
@@ -66,9 +97,9 @@
     </div>
     <div>
       <label>座標 (X, Y, Z):</label><br>
-      <input type="number" id="posX" value="0" style="width:25%;">
-      <input type="number" id="posY" value="64" style="width:25%;">
-      <input type="number" id="posZ" value="0" style="width:25%;">
+      <input type="number" id="posX" value="0" style="width:28%;">
+      <input type="number" id="posY" value="64" style="width:28%;">
+      <input type="number" id="posZ" value="0" style="width:28%;">
     </div>
 
     <button onclick="checkBiome()">Wasmで計算実行！</button>
@@ -77,7 +108,6 @@
   </div>
 
   <script>
-    // マイクラ1.20 ネザーのバイオームID定義
     const biomeNames = {
       8: "🔥 ネザーの荒野 (Nether Wastes)",
       178: "🍄 ソウルサンドの谷 (Soul Sand Valley)",
@@ -86,9 +116,34 @@
       181: "⬛ 玄武岩デルタ (Basalt Deltas)"
     };
 
-    let getBiomeFunc = null;
+    function checkBiome() {
+      const resEl = document.getElementById('result');
+      
+      if (!getBiomeFunc) {
+        resEl.textContent = "⚠️ まだWasmエンジンがロードされていません";
+        resEl.style.color = "#f59e0b";
+        return;
+      }
 
-    // Wasmの読み込み完了待機
-    Module.onRuntimeInitialized = () => {
-      // C言語の関数をJavaScriptとしてバインド
-      getBiomeFunc
+      const seed = parseInt(document.getElementById('seed').value) || 0;
+      const x = parseInt(document.getElementById('posX').value) || 0;
+      const y = parseInt(document.getElementById('posY').value) || 0;
+      const z = parseInt(document.getElementById('posZ').value) || 0;
+
+      try {
+        // C言語（Wasm）の超高速計算を呼び出し！
+        const biomeId = getBiomeFunc(seed, x, y, z);
+        const name = biomeNames[biomeId] || `バイオームID: ${biomeId}`;
+
+        resEl.innerHTML = `
+          計算結果:<br>
+          <span style="color:#facc15;">${name}</span>
+        `;
+      } catch (err) {
+        resEl.textContent = "計算エラー: " + err.message;
+        resEl.style.color = "#ef4444";
+      }
+    }
+  </script>
+</body>
+</html>
