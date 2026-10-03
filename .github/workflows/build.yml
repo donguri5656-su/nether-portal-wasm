@@ -1,0 +1,44 @@
+name: Build Cubiomes Wasm
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 1. 最新のCubiomes公式リポジトリを自動クローン
+      - name: Clone Cubiomes
+        run: |
+          git clone https://github.com/Cubitect/cubiomes.git cubiomes
+
+      # 2. Emscripten (Wasmコンパイラ) のセットアップ
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.50
+
+      # 3. コンパイル実行（C言語 ➔ Wasm）
+      - name: Compile to Wasm
+        run: |
+          emcc wrapper.c cubiomes/generator.c cubiomes/biomes.c cubiomes/layers.c cubiomes/noise.c \
+            -I cubiomes \
+            -O3 \
+            -s WASM=1 \
+            -s EXPORTED_RUNTIME_METHODS='["cwrap", "ccall"]' \
+            -s ALLOW_MEMORY_GROWTH=1 \
+            -o nether_engine.js
+
+      # 4. 生成されたWasmとJSをダウンロード可能にする
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-build-result
+          path: |
+            nether_engine.js
+            nether_engine.wasm
