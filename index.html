@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cubiomes Wasm テスト</title>
+  <style>
+    body {
+      background: #0d0f17;
+      color: #f3f4f6;
+      font-family: sans-serif;
+      padding: 20px;
+      text-align: center;
+    }
+    .card {
+      background: #1a1d2e;
+      border: 1px solid #313754;
+      border-radius: 12px;
+      padding: 20px;
+      max-width: 400px;
+      margin: 0 auto;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+    input {
+      background: #0d0f17;
+      border: 1px solid #4a5568;
+      color: #fff;
+      padding: 8px;
+      border-radius: 6px;
+      width: 80%;
+      margin: 6px 0;
+      text-align: center;
+    }
+    button {
+      background: #a855f7;
+      color: #fff;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    #result {
+      margin-top: 20px;
+      padding: 15px;
+      background: #23273d;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      font-weight: bold;
+      color: #4cc9f0;
+    }
+  </style>
+  <!-- Wasmラッパーの読み込み -->
+  <script src="nether_engine.js"></script>
+</head>
+<body>
+
+  <div class="card">
+    <h2>🌌 ネザーWasm判定テスト</h2>
+    <p style="font-size:0.8rem; color:#9aa0b8;">シード値と座標からゲーム内と完全一致するバイオームを即座に計算します</p>
+
+    <div>
+      <label>シード値 (Seed):</label><br>
+      <input type="number" id="seed" value="12345">
+    </div>
+    <div>
+      <label>座標 (X, Y, Z):</label><br>
+      <input type="number" id="posX" value="0" style="width:25%;">
+      <input type="number" id="posY" value="64" style="width:25%;">
+      <input type="number" id="posZ" value="0" style="width:25%;">
+    </div>
+
+    <button onclick="checkBiome()">Wasmで計算実行！</button>
+
+    <div id="result">エンジン待機中...</div>
+  </div>
+
+  <script>
+    // マイクラ1.20 ネザーのバイオームID定義
+    const biomeNames = {
+      8: "🔥 ネザーの荒野 (Nether Wastes)",
+      178: "🍄 ソウルサンドの谷 (Soul Sand Valley)",
+      179: "🌲 真紅の森 (Crimson Forest)",
+      180: "🌀 歪んだ森 (Warped Forest)",
+      181: "⬛ 玄武岩デルタ (Basalt Deltas)"
+    };
+
+    let getBiomeFunc = null;
+
+    // Wasmの読み込み完了待機
+    Module.onRuntimeInitialized = () => {
+      // C言語の関数をJavaScriptとしてバインド
+      getBiomeFunc
