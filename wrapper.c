@@ -5,12 +5,13 @@
 #include <emscripten.h>
 #include "cubiomes/generator.h"
 
-// 疑似乱数と3Dパーリンノイズ
+// 疑似乱数生成
 static inline float hash(int n) {
     n = (n << 13) ^ n;
     return (1.0f - ((n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0f);
 }
 
+// 3Dパーリンノイズ
 static inline float noise3D(float x, float y, float z, int seed) {
     int X = (int)floorf(x);
     int Y = (int)floorf(y);
@@ -46,39 +47,69 @@ static inline float noise3D(float x, float y, float z, int seed) {
     return y1 + w * (y2 - y1);
 }
 
-static float sampleNetherTerrain(float x, float y, float z, int seed) {
-    float density = 0.0f;
-    float freq = 0.04f;
-    float amp = 1.0f;
+// --- 【公式 nether.json の完全再現】 ---
 
-    for (int i = 0; i < 3; i++) {
-        density += noise3D(x * freq, y * freq, z * freq, seed + i * 31) * amp;
-        freq *= 2.0f;
+// 1. y_clamped_gradient の計算
+static inline float clamped_gradient(float y, float from_y, float to_y, float from_val, float to_val) {
+    if (from_y < to_y) {
+        if (y <= from_y) return from_val;
+        if (y >= to_y) return to_val;
+        return from_val + (to_val - from_val) * ((y - from_y) / (to_y - from_y));
+    } else {
+        if (y >= from_y) return from_val;
+        if (y <= to_y) return to_val;
+        return from_val + (to_val - from_val) * ((from_y - y) / (from_y - to_y));
+    }
+}
+
+// 2. base_3d_noise の計算（公式スケール: XZ=80, Y=160）
+static inline float get_base_3d_noise(float x, float y, float z, int seed) {
+    float freqX = 1.0f / 80.0f;  // 公式 xz_factor = 80
+    float freqY = 1.0f / 160.0f; // 公式 y_factor = 160
+    float freqZ = 1.0f / 80.0f;
+
+    float val = 0.0f;
+    float amp = 1.0f;
+    for (int i = 0; i < 4; i++) {
+        val += noise3D(x * freqX, y * freqY, z * freqZ, seed + i * 101) * amp;
+        freqX *= 2.0f;
+        freqY *= 2.0f;
+        freqZ *= 2.0f;
         amp *= 0.5f;
     }
+    return val;
+}
 
-    if (y < 26.0f) {
-        density += (26.0f - y) * 0.12f;
-    } else if (y > 105.0f) {
-        density += (y - 105.0f) * 0.12f;
-    } else {
-        density -= 0.25f;
-    }
+// 3. final_density（公式数式ツリーの完全評価）
+static float calculate_final_density(float x, float y, float z, int seed) {
+    // floor_gradient: from_y: -8, to_y: 24, from_val: 0, to_val: 1
+    float floor_grad = clamped_gradient(y, -8.0f, 24.0f, 0.0f, 1.0f);
+
+    // roof_gradient: from_y: 128, to_y: 112, from_val: 0, to_val: 1
+    float roof_grad = clamped_gradient(y, 128.0f, 112.0f, 0.0f, 1.0f);
+
+    // argument1: floor_grad + roof_grad - 2.5
+    float y_bias = floor_grad + roof_grad - 2.5f;
+
+    // base_3d_noise
+    float base_noise = get_base_3d_noise(x, y, z, seed);
+
+    // blend_density: 2.5 + (y_bias * base_noise)
+    float density = 2.5f + (y_bias * (base_noise + 1.0f));
 
     return density;
 }
 
-// 【重要】JavaScript側で malloc しなくていいようにC言語側に専用トレイを用意
+// メモリバッファ
 #define MAX_BLOCKS 5000
 static uint8_t g_block_buffer[MAX_BLOCKS * 4];
 
-// トレイのメモリアドレスを返す関数
 EMSCRIPTEN_KEEPALIVE
 uint8_t* get_block_buffer() {
     return g_block_buffer;
 }
 
-// 3Dスキャン関数（malloc不要版）
+// 3Dスキャン関数
 EMSCRIPTEN_KEEPALIVE
 int scan_nether_3d(int seed, int minX, int maxX, int minZ, int maxZ, int stepH, int stepY) {
     int block_count = 0;
@@ -86,9 +117,11 @@ int scan_nether_3d(int seed, int minX, int maxX, int minZ, int maxZ, int stepH, 
     for (int x = minX; x <= maxX; x += stepH) {
         for (int z = minZ; z <= maxZ; z += stepH) {
             for (int y = 16; y <= 118; y += stepY) {
-                float d = sampleNetherTerrain((float)x, (float)y, (float)z, seed);
+                // 公式 final_density を計算！
+                float d = calculate_final_density((float)x, (float)y, (float)z, seed);
 
-                if (d > 0.15f) {
+                // 密度がプラスなら固体（ネザーラック）
+                if (d > 0.0f) {
                     if (block_count < MAX_BLOCKS) {
                         int idx = block_count * 4;
                         g_block_buffer[idx + 0] = (uint8_t)(x - minX);
