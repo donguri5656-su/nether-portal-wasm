@@ -2,163 +2,204 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cubiomes Wasm 診断テスト</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Minecraft ネザーゲート混線3D (Wasm搭載版)</title>
   <style>
-    body {
-      background: #0d0f17;
-      color: #f3f4f6;
+    :root {
+      --bg: #07080d;
+      --card-bg: #121522;
+      --border: #262a3d;
+      --accent: #a855f7;
+      --cyan: #06b6d4;
+      --green: #10b981;
+      --red: #ef4444;
+      --yellow: #facc15;
+      --text: #f3f4f6;
+      --text-dim: #9ca3af;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      padding: 16px;
-      text-align: center;
+      -webkit-tap-highlight-color: transparent;
     }
-    .card {
-      background: #1a1d2e;
-      border: 1px solid #313754;
-      border-radius: 12px;
-      padding: 16px;
-      max-width: 400px;
-      margin: 0 auto;
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
     }
-    input {
-      background: #0d0f17;
-      border: 1px solid #4a5568;
-      color: #fff;
-      padding: 8px;
+
+    /* 3D透視キャンバス（上部54%） */
+    #canvas-container {
+      position: relative;
+      width: 100%;
+      height: 54%;
+      background: radial-gradient(circle at center, #1a142e 0%, #06070c 100%);
+      touch-action: none;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .btn-reset {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      background: rgba(18, 21, 34, 0.88);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
       border-radius: 6px;
-      width: 80%;
-      margin: 6px 0;
-      text-align: center;
-    }
-    button {
-      background: #a855f7;
-      color: #fff;
-      border: none;
-      padding: 12px 20px;
-      border-radius: 6px;
-      font-weight: bold;
+      padding: 6px 10px;
+      font-size: 0.7rem;
+      backdrop-filter: blur(6px);
+      z-index: 5;
       cursor: pointer;
-      margin-top: 10px;
-      width: 85%;
     }
-    #result {
-      margin-top: 16px;
-      padding: 12px;
-      background: #23273d;
-      border-radius: 8px;
-      font-size: 1rem;
-      font-weight: bold;
-      color: #4cc9f0;
-    }
-    /* スマホ画面でエラーを確認できるログエリア */
-    #logBox {
-      margin-top: 16px;
-      padding: 10px;
-      background: rgba(0,0,0,0.5);
-      border: 1px solid #333;
+
+    .canvas-info {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.75);
+      border: 1px solid var(--border);
       border-radius: 6px;
-      font-family: monospace;
-      font-size: 0.75rem;
-      text-align: left;
-      color: #9ca3af;
-      max-height: 120px;
+      padding: 5px 9px;
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      pointer-events: none;
+      line-height: 1.4;
+      text-align: right;
+    }
+
+    /* 下部：操作パネル */
+    .controls-container {
+      flex: 1;
+      background: var(--card-bg);
+      border-top: 1px solid var(--border);
+      padding: 12px;
       overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .banner {
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      border-left: 4px solid var(--border);
+      background: rgba(0, 0, 0, 0.3);
+    }
+    .banner.ok { border-left-color: var(--green); background: rgba(16, 185, 129, 0.12); }
+    .banner.danger { border-left-color: var(--red); background: rgba(239, 68, 68, 0.12); }
+    .banner.warn { border-left-color: #f97316; background: rgba(249, 115, 22, 0.12); }
+    .banner-title { font-weight: bold; font-size: 0.85rem; }
+    .banner-desc { font-size: 0.72rem; color: var(--text-dim); line-height: 1.3; }
+
+    .card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .card-title {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .coord-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+    }
+    .coord-box {
+      display: flex;
+      align-items: center;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px 6px;
+    }
+    .coord-box label { font-size: 0.72rem; font-weight: bold; width: 14px; }
+    .coord-box.x label { color: #f87171; }
+    .coord-box.y label { color: #4ade80; }
+    .coord-box.z label { color: #60a5fa; }
+    .coord-box input {
+      width: 100%;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-size: 0.85rem;
+      text-align: right;
+      outline: none;
+    }
+
+    .chunk-presets {
+      display: flex;
+      gap: 6px;
+      margin-top: 2px;
+    }
+    .btn-preset {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      cursor: pointer;
+    }
+    .btn-preset.active {
+      background: var(--yellow);
+      color: #000;
+      font-weight: bold;
+      border-color: var(--yellow);
+    }
+
+    .toggle-row {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+    }
+    .btn-toggle {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 5px 8px;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .btn-toggle.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
     }
   </style>
 
-  <!-- 【最上部で関数を完全定義：絶対に ReferenceError を起こさない設計】 -->
+  <!-- Wasm 初期化 -->
   <script>
-    function addLog(msg) {
-      console.log(msg);
-      const box = document.getElementById('logBox');
-      if (box) {
-        box.innerHTML += "<div>" + msg + "</div>";
-        box.scrollTop = box.scrollHeight;
-      }
-    }
-
+    let scanNetherFunc = null;
     let getBiomeFunc = null;
-    let isWasmLoaded = false;
+    let isWasmReady = false;
+    let wasmMemoryBuffer = null;
+    const MAX_BLOCKS = 4000;
 
-    // ボタンの関数を一番最初に確実に定義
-    window.checkBiome = function() {
-      const resEl = document.getElementById('result');
-      if (!isWasmLoaded || !getBiomeFunc) {
-        resEl.textContent = "⏳ Wasmエンジンがまだロードされていません";
-        resEl.style.color = "#f59e0b";
-        return;
-      }
-
-      const seed = parseInt(document.getElementById('seed').value) || 0;
-      const x = parseInt(document.getElementById('posX').value) || 0;
-      const y = parseInt(document.getElementById('posY').value) || 0;
-      const z = parseInt(document.getElementById('posZ').value) || 0;
-
-      try {
-        const biomeId = getBiomeFunc(seed, x, y, z);
-        const biomeNames = {
-          8: "🔥 ネザーの荒野", 178: "🍄 ソウルサンドの谷",
-          179: "🌲 真紅の森", 180: "🌀 歪んだ森", 181: "⬛ 玄武岩デルタ"
-        };
-        const name = biomeNames[biomeId] || ("ID: " + biomeId);
-        resEl.innerHTML = `判定成功: <span style="color:#facc15;">${name}</span>`;
-        resEl.style.color = "#10b981";
-      } catch (err) {
-        resEl.textContent = "計算エラー: " + err.message;
-        resEl.style.color = "#ef4444";
-      }
-    };
-
-    // Emscripten の初期化フック
     var Module = {
-      onRuntimeInitialized: function() {
-        addLog("✅ Wasmの読み込みに成功しました！");
-        getBiomeFunc = Module.cwrap('get_nether_biome', 'number', ['number', 'number', 'number', 'number']);
-        isWasmLoaded = true;
-        const resEl = document.getElementById('result');
-        if (resEl) {
-          resEl.textContent = "✅ Wasmエンジン準備完了！";
-          resEl.style.color = "#10b981";
-        }
-      },
-      printErr: function(text) {
-        addLog("⚠️ Wasm警告: " + text);
-      }
-    };
-
-    window.addEventListener('error', function(e) {
-      if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK')) {
-        addLog("🚨 読み込み失敗(404): " + (e.target.src || e.target.href));
-      }
-    }, true);
-  </script>
-
-  <!-- Wasm読み込み -->
-  <script src="nether_engine.js"></script>
-</head>
-<body>
-
-  <div class="card">
-    <h3>🌌 ネザーWasm 診断テスト</h3>
-
-    <div>
-      <input type="number" id="seed" value="12345" placeholder="シード値">
-    </div>
-    <div style="display:flex; justify-content:center; gap:6px;">
-      <input type="number" id="posX" value="0" style="width:25%;" placeholder="X">
-      <input type="number" id="posY" value="64" style="width:25%;" placeholder="Y">
-      <input type="number" id="posZ" value="0" style="width:25%;" placeholder="Z">
-    </div>
-
-    <button onclick="checkBiome()">Wasmで計算実行！</button>
-
-    <div id="result">エンジン待機中...</div>
-
-    <!-- スマホ画面でエラーがすぐわかるログ窓 -->
-    <div id="logBox">
-      <div>[ステータスログ]</div>
-    </div>
-  </div>
-
-</body>
-</html>
+  
