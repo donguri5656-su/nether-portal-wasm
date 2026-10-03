@@ -68,9 +68,19 @@ static float sampleNetherTerrain(float x, float y, float z, int seed) {
     return density;
 }
 
-// 3Dスキャン関数
+// 【重要】JavaScript側で malloc しなくていいようにC言語側に専用トレイを用意
+#define MAX_BLOCKS 5000
+static uint8_t g_block_buffer[MAX_BLOCKS * 4];
+
+// トレイのメモリアドレスを返す関数
 EMSCRIPTEN_KEEPALIVE
-int scan_nether_3d(int seed, int minX, int maxX, int minZ, int maxZ, int stepH, int stepY, uint8_t* out_buffer, int max_blocks) {
+uint8_t* get_block_buffer() {
+    return g_block_buffer;
+}
+
+// 3Dスキャン関数（malloc不要版）
+EMSCRIPTEN_KEEPALIVE
+int scan_nether_3d(int seed, int minX, int maxX, int minZ, int maxZ, int stepH, int stepY) {
     int block_count = 0;
 
     for (int x = minX; x <= maxX; x += stepH) {
@@ -79,12 +89,12 @@ int scan_nether_3d(int seed, int minX, int maxX, int minZ, int maxZ, int stepH, 
                 float d = sampleNetherTerrain((float)x, (float)y, (float)z, seed);
 
                 if (d > 0.15f) {
-                    if (block_count < max_blocks) {
+                    if (block_count < MAX_BLOCKS) {
                         int idx = block_count * 4;
-                        out_buffer[idx + 0] = (uint8_t)(x - minX);
-                        out_buffer[idx + 1] = (uint8_t)y;
-                        out_buffer[idx + 2] = (uint8_t)(z - minZ);
-                        out_buffer[idx + 3] = 1;
+                        g_block_buffer[idx + 0] = (uint8_t)(x - minX);
+                        g_block_buffer[idx + 1] = (uint8_t)y;
+                        g_block_buffer[idx + 2] = (uint8_t)(z - minZ);
+                        g_block_buffer[idx + 3] = 1;
                         block_count++;
                     }
                 }
