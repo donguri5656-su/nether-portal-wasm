@@ -12,21 +12,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 1. 最新のCubiomes公式リポジトリを自動クローン
+      # 1. Cubiomesの最新ソースコードを取得
       - name: Clone Cubiomes
         run: |
           git clone https://github.com/Cubitect/cubiomes.git cubiomes
 
-      # 2. Emscripten (Wasmコンパイラ) のセットアップ
+      # 2. Emscriptenのセットアップ
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: 3.1.50
 
-      # 3. コンパイル実行（C言語 ➔ Wasm）
+      # 3. コンパイル実行（cubiomes/*.c で全ファイルを一括リンク）
       - name: Compile to Wasm
         run: |
-          emcc wrapper.c cubiomes/generator.c cubiomes/biomes.c cubiomes/layers.c cubiomes/noise.c \
+          emcc wrapper.c cubiomes/*.c \
             -I cubiomes \
             -O3 \
             -s WASM=1 \
