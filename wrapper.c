@@ -3,8 +3,12 @@
 #include <stdlib.h>
 #include <math.h>
 #include <emscripten.h>
-#include "cubiomes/generator.h"
+
+// 【重要】Cubiomesの内部マクロを解決するための正規インクルード順
+#include "cubiomes/util.h"
+#include "cubiomes/rng.h"
 #include "cubiomes/noise.h"
+#include "cubiomes/generator.h"
 
 // --- Minecraft Java公式 BlendedNoise (計40層オクターブ) ---
 
