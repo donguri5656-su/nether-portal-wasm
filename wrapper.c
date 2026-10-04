@@ -6,62 +6,33 @@
 #include "cubiomes/generator.h"
 #include "cubiomes/noise.h"
 
-// --- Minecraft Java公式 BlendedNoise の完全再現 ---
+// --- Minecraft Java公式 BlendedNoise (計40層オクターブ) ---
 
-#define OCTAVES_LIMIT 16
-#define OCTAVES_MAIN  8
+#define TOTAL_OCTAVES 40
 
-typedef struct {
-    PerlinNoise octaves[OCTAVES_LIMIT];
-    int count;
-} OctaveSampler;
+static PerlinNoise g_perlin_pool[TOTAL_OCTAVES];
+static OctaveNoise g_octmin;   // 16層下限ノイズ
+static OctaveNoise g_octmax;   // 16層上限ノイズ
+static OctaveNoise g_octmain;  // 8層補間ノイズ
 
-static OctaveSampler g_lower_noise;
-static OctaveSampler g_upper_noise;
-static OctaveSampler g_main_noise;
-
-static int g_blended_initialized = 0;
+static int g_noise_initialized = 0;
 static int64_t g_last_seed = -1;
 
-// オクターブノイズの初期化（Java公式と同じ周波数配置）
-static void init_octaves(OctaveSampler* sampler, int count, uint64_t* seed_state) {
-    sampler->count = count;
-    for (int i = 0; i < count; i++) {
-        perlinInit(&sampler->octaves[i], seed_state);
-    }
-}
-
-// オクターブノイズのサンプリング
-static double sample_octaves(const OctaveSampler* sampler, double x, double y, double z) {
-    double total = 0.0;
-    double freq = 1.0;
-    double amp = 1.0;
-
-    for (int i = 0; i < sampler->count; i++) {
-        double nx = x * freq;
-        double ny = y * freq;
-        double nz = z * freq;
-        total += samplePerlin(&sampler->octaves[i], nx, ny, nz) * amp;
-        freq *= 2.0;
-        amp *= 0.5;
-    }
-    return total;
-}
-
-// シード値から公式BlendedNoiseを完全初期化
+// シード値から公式BlendedNoise（40層）を初期化
 static void init_official_blended_noise(int64_t seed) {
-    if (g_blended_initialized && g_last_seed == seed) return;
+    if (g_noise_initialized && g_last_seed == seed) return;
 
-    // Java公式のシードハッシュ展開
-    uint64_t s_lower = (uint64_t)seed ^ 0x5deece66dULL;
-    uint64_t s_upper = (uint64_t)(seed + 1) ^ 0x5deece66dULL;
-    uint64_t s_main  = (uint64_t)(seed + 2) ^ 0x5deece66dULL;
+    uint64_t s = (uint64_t)seed;
 
-    init_octaves(&g_lower_noise, OCTAVES_LIMIT, &s_lower);
-    init_octaves(&g_upper_noise, OCTAVES_LIMIT, &s_upper);
-    init_octaves(&g_main_noise,  OCTAVES_MAIN,  &s_main);
+    // Cubiomes公式のオクターブ初期化
+    // octmin: 16オクターブ (omin: -15, len: 16)
+    octaveInit(&g_octmin,  &s, g_perlin_pool + 0,  -15, 16);
+    // octmax: 16オクターブ (omin: -15, len: 16)
+    octaveInit(&g_octmax,  &s, g_perlin_pool + 16, -15, 16);
+    // octmain: 8オクターブ (omin: -7, len: 8)
+    octaveInit(&g_octmain, &s, g_perlin_pool + 32, -7,  8);
 
-    g_blended_initialized = 1;
+    g_noise_initialized = 1;
     g_last_seed = seed;
 }
 
@@ -88,20 +59,17 @@ static float calculate_official_nether_density(float x, float y, float z, int64_
     init_official_blended_noise(seed);
 
     // 公式 nether/base_3d_noise スケール
-    // xz_scale = 1.0, y_scale = 2.0, xz_factor = 80.0, y_factor = 160.0
-    double xz_factor = 80.0;
-    double y_factor  = 160.0;
+    // xz_factor = 80.0, y_factor = 160.0
+    double scaleX = 1.0 / 80.0;
+    double scaleY = 2.0 / 160.0;
+    double scaleZ = 1.0 / 80.0;
 
-    double scaleX = 1.0 / xz_factor;
-    double scaleY = 2.0 / y_factor;
-    double scaleZ = 1.0 / xz_factor;
-
-    // 補間用メインノイズ（Smearスケール）
+    // 補間用メインノイズ（Smearスケール 1/8）
     double mainX = (double)x * (scaleX / 8.0);
     double mainY = (double)y * (scaleY / 8.0);
     double mainZ = (double)z * (scaleZ / 8.0);
 
-    double mainVal = sample_octaves(&g_main_noise, mainX, mainY, mainZ);
+    double mainVal = sampleOctave(&g_octmain, mainX, mainY, mainZ);
     double alpha = (mainVal * 0.1 + 1.0) * 0.5;
     if (alpha < 0.0) alpha = 0.0;
     if (alpha > 1.0) alpha = 1.0;
@@ -111,8 +79,8 @@ static float calculate_official_nether_density(float x, float y, float z, int64_
     double boundY = (double)y * scaleY;
     double boundZ = (double)z * scaleZ;
 
-    double lowerVal = sample_octaves(&g_lower_noise, boundX, boundY, boundZ);
-    double upperVal = sample_octaves(&g_upper_noise, boundX, boundY, boundZ);
+    double lowerVal = sampleOctave(&g_octmin, boundX, boundY, boundZ);
+    double upperVal = sampleOctave(&g_octmax, boundX, boundY, boundZ);
 
     double base_noise = lerp(lowerVal, upperVal, alpha) / 128.0;
 
@@ -156,4 +124,20 @@ int scan_nether_3d(int seed, int minX, int maxX, int minZ, int maxZ, int stepH, 
                         g_block_buffer[idx + 2] = (uint8_t)(z - minZ);
                         g_block_buffer[idx + 3] = 1;
                         block_count++;
-                   
+                    }
+                }
+            }
+        }
+    }
+
+    return block_count;
+}
+
+// バイオーム取得
+EMSCRIPTEN_KEEPALIVE
+int get_nether_biome(int seed, int x, int y, int z) {
+    Generator g;
+    setupGenerator(&g, MC_1_20, 0);
+    applySeed(&g, DIM_NETHER, (int64_t)seed);
+    return getBiomeAt(&g, 4, x, y, z);
+}
