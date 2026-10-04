@@ -4,7 +4,6 @@
 #include <math.h>
 #include <emscripten.h>
 
-// 【重要】Cubiomesの内部マクロを解決するための正規インクルード順
 #include "cubiomes/util.h"
 #include "cubiomes/rng.h"
 #include "cubiomes/noise.h"
@@ -29,11 +28,8 @@ static void init_official_blended_noise(int64_t seed) {
     uint64_t s = (uint64_t)seed;
 
     // Cubiomes公式のオクターブ初期化
-    // octmin: 16オクターブ (omin: -15, len: 16)
     octaveInit(&g_octmin,  &s, g_perlin_pool + 0,  -15, 16);
-    // octmax: 16オクターブ (omin: -15, len: 16)
     octaveInit(&g_octmax,  &s, g_perlin_pool + 16, -15, 16);
-    // octmain: 8オクターブ (omin: -7, len: 8)
     octaveInit(&g_octmain, &s, g_perlin_pool + 32, -7,  8);
 
     g_noise_initialized = 1;
@@ -53,8 +49,8 @@ static inline float clamped_gradient(float y, float from_y, float to_y, float fr
     }
 }
 
-// 公式線形補間
-static inline double lerp(double a, double b, double t) {
+// 【修正】rng.h との名前衝突を避けるため my_lerp に改名
+static inline double my_lerp(double a, double b, double t) {
     return a + t * (b - a);
 }
 
@@ -63,7 +59,6 @@ static float calculate_official_nether_density(float x, float y, float z, int64_
     init_official_blended_noise(seed);
 
     // 公式 nether/base_3d_noise スケール
-    // xz_factor = 80.0, y_factor = 160.0
     double scaleX = 1.0 / 80.0;
     double scaleY = 2.0 / 160.0;
     double scaleZ = 1.0 / 80.0;
@@ -86,7 +81,7 @@ static float calculate_official_nether_density(float x, float y, float z, int64_
     double lowerVal = sampleOctave(&g_octmin, boundX, boundY, boundZ);
     double upperVal = sampleOctave(&g_octmax, boundX, boundY, boundZ);
 
-    double base_noise = lerp(lowerVal, upperVal, alpha) / 128.0;
+    double base_noise = my_lerp(lowerVal, upperVal, alpha) / 128.0;
 
     // 公式高度勾配 G(Y)
     float floor_grad = clamped_gradient(y, -8.0f, 24.0f, 0.0f, 1.0f);
